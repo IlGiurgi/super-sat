@@ -97,8 +97,6 @@ void SuperSatEditor::addKnob (Knob& k, const juce::String& id, const juce::Strin
     k.s.setLookAndFeel (&lnf);
     k.s.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
     k.s.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    k.s.textFromValueFunction = [fmt] (double v) { return fmt (v); };
-    k.s.valueFromTextFunction = [] (const juce::String& t) { return t.getDoubleValue(); };
     addAndMakeVisible (k.s);
 
     k.l.setText (name, juce::dontSendNotification);
@@ -108,6 +106,11 @@ void SuperSatEditor::addKnob (Knob& k, const juce::String& id, const juce::Strin
     addAndMakeVisible (k.l);
 
     k.att = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, id, k.s);
+
+    // dopo l'attachment, che altrimenti sovrascrive il formato del testo
+    k.s.textFromValueFunction = [fmt] (double v) { return fmt (v); };
+    k.s.valueFromTextFunction = [] (const juce::String& t) { return t.getDoubleValue(); };
+    k.s.updateText();
 }
 
 void SuperSatEditor::placeKnob (Knob& k, int cx, int y, int size)
