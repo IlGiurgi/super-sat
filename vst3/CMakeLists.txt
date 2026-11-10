@@ -12,11 +12,17 @@ FetchContent_Declare(JUCE
   GIT_SHALLOW ON)
 FetchContent_MakeAvailable(JUCE)
 
+if(APPLE)
+  set(SUPERSAT_FORMATS VST3 AU Standalone)
+else()
+  set(SUPERSAT_FORMATS VST3 Standalone)
+endif()
+
 juce_add_plugin(SuperSat
   COMPANY_NAME "SuperSat"
   PLUGIN_MANUFACTURER_CODE SuSa
   PLUGIN_CODE Ssat
-  FORMATS VST3 Standalone
+  FORMATS ${SUPERSAT_FORMATS}
   PRODUCT_NAME "Super Sat"
   IS_SYNTH FALSE
   NEEDS_MIDI_INPUT FALSE
@@ -25,8 +31,8 @@ juce_add_plugin(SuperSat
   VST3_CATEGORIES Fx Distortion)
 
 juce_add_binary_data(SuperSatArt SOURCES
-  art/goku0.jpg art/goku1.jpg art/goku2.jpg
-  art/goku3.jpg art/goku4.jpg art/goku5.jpg)
+  art/goku0.png art/goku1.png art/goku2.png
+  art/goku3.png art/goku4.png art/goku5.png)
 
 target_sources(SuperSat PRIVATE
   Source/PluginProcessor.cpp

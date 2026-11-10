@@ -55,6 +55,8 @@ private:
     };
     struct Particle { float x, y, vx, vy, life, maxLife, sz; };
     struct Bolt { std::vector<juce::Point<float>> pts; int ttl; };
+    struct Spark { float x, y, vx, vy, life, maxLife; };
+    struct Ring { float r, a; bool big; };
 
     void timerCallback() override;
     void addKnob (Knob&, const juce::String& id, const juce::String& name,
@@ -72,6 +74,10 @@ private:
     std::array<juce::TextButton, 5> styleBtns;
 
     std::array<juce::Image, 6> imgs;
+    std::array<juce::Image, 6> glow;   // sagome sfocate per l'alone
+    float rayAngle = 0.0f, tt = 0.0f;
+    std::vector<Spark> sparks;
+    std::vector<Ring> rings;
 
     // stato animazione
     float p = 0.0f, lvl = 0.0f, avgLvl = 0.0f, pulse = 0.0f, flash = 0.0f, scout = 0.0f;

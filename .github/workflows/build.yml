@@ -14,17 +14,28 @@ jobs:
         run: cmake -S vst3 -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
       - name: Build
         run: cmake --build build --config Release --parallel 4
-      - name: Sign (ad-hoc) and zip
+      - name: Sign (ad-hoc), zip and build installer
         run: |
-          VST=$(find build -maxdepth 4 -name "*.vst3" -type d | head -1)
-          echo "Found: $VST"
-          codesign --force --deep -s - "$VST"
-          mkdir -p out
+          VST=$(find build -maxdepth 5 -name "*.vst3" -type d | head -1)
+          AU=$(find build -maxdepth 5 -name "*.component" -type d | head -1)
+          APP=$(find build -maxdepth 5 -name "*.app" -type d | head -1)
+          echo "VST3: $VST"; echo "AU: $AU"; echo "APP: $APP"
+          for b in "$VST" "$AU" "$APP"; do [ -n "$b" ] && codesign --force --deep -s - "$b"; done
+          mkdir -p out stage/Library/Audio/Plug-Ins/VST3 stage/Library/Audio/Plug-Ins/Components stage/Applications
+          cp -R "$VST" stage/Library/Audio/Plug-Ins/VST3/
+          [ -n "$AU" ] && cp -R "$AU" stage/Library/Audio/Plug-Ins/Components/
+          [ -n "$APP" ] && cp -R "$APP" "stage/Applications/"
+          # installer .pkg: mette i plugin nelle cartelle giuste
+          pkgbuild --root stage --identifier com.supersat.plugin --version 1.0.0 \
+                   --install-location / out/SuperSat-Mac-Installer.pkg
+          # zip dei singoli file
           ditto -c -k --keepParent "$VST" out/SuperSat-mac-vst3.zip
+          [ -n "$AU" ] && ditto -c -k --keepParent "$AU" out/SuperSat-mac-au.zip || true
+          ls -la out
       - uses: actions/upload-artifact@v4
         with:
-          name: SuperSat-mac-vst3
-          path: out/SuperSat-mac-vst3.zip
+          name: SuperSat-mac
+          path: out/*
 
   windows:
     runs-on: windows-latest

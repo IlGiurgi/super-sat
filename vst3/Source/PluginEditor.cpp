@@ -28,12 +28,25 @@ namespace
 SuperSatEditor::SuperSatEditor (SuperSatProcessor& pr)
     : AudioProcessorEditor (&pr), proc (pr)
 {
-    imgs[0] = juce::ImageCache::getFromMemory (BinaryData::goku0_jpg, BinaryData::goku0_jpgSize);
-    imgs[1] = juce::ImageCache::getFromMemory (BinaryData::goku1_jpg, BinaryData::goku1_jpgSize);
-    imgs[2] = juce::ImageCache::getFromMemory (BinaryData::goku2_jpg, BinaryData::goku2_jpgSize);
-    imgs[3] = juce::ImageCache::getFromMemory (BinaryData::goku3_jpg, BinaryData::goku3_jpgSize);
-    imgs[4] = juce::ImageCache::getFromMemory (BinaryData::goku4_jpg, BinaryData::goku4_jpgSize);
-    imgs[5] = juce::ImageCache::getFromMemory (BinaryData::goku5_jpg, BinaryData::goku5_jpgSize);
+    imgs[0] = juce::ImageFileFormat::loadFrom (BinaryData::goku0_png, BinaryData::goku0_pngSize);
+    imgs[1] = juce::ImageFileFormat::loadFrom (BinaryData::goku1_png, BinaryData::goku1_pngSize);
+    imgs[2] = juce::ImageFileFormat::loadFrom (BinaryData::goku2_png, BinaryData::goku2_pngSize);
+    imgs[3] = juce::ImageFileFormat::loadFrom (BinaryData::goku3_png, BinaryData::goku3_pngSize);
+    imgs[4] = juce::ImageFileFormat::loadFrom (BinaryData::goku4_png, BinaryData::goku4_pngSize);
+    imgs[5] = juce::ImageFileFormat::loadFrom (BinaryData::goku5_png, BinaryData::goku5_pngSize);
+
+    // sagome sfocate (bassa risoluzione) per l'alone di energia dietro Goku
+    for (size_t i = 1; i < imgs.size(); ++i)
+    {
+        if (imgs[i].isNull()) continue;
+        auto small = imgs[i].rescaled (180, 240, juce::Graphics::mediumResamplingQuality)
+                            .convertedToFormat (juce::Image::ARGB);
+        juce::Image dst (juce::Image::ARGB, 180, 240, true);
+        juce::ImageConvolutionKernel k (13);
+        k.createGaussianBlur (6.0f);
+        k.applyToImage (dst, small, dst.getBounds());
+        glow[i] = dst;
+    }
 
     auto pctF = [] (double v) { return juce::String (juce::roundToInt (v)) + "%"; };
     addKnob (kDL, "driveLow",  "LOW DRIVE",  pctF);
@@ -208,17 +221,22 @@ void SuperSatEditor::timerCallback()
     shakeY = (rng.nextFloat() - 0.5f) * sh;
 
     // particelle di fiamma lungo i bordi del pannello
-    const int spawn = (int) (p * 5.0f + lvl * 8.0f);
-    for (int i = 0; i < spawn && parts.size() < 480; ++i)
+    tt += 1.0f / 30.0f;
+    rayAngle += 0.006f + 0.03f * p + 0.02f * pulse;
+
+    const int spawn = (int) (p * 9.0f + lvl * 16.0f);
+    for (int i = 0; i < spawn && parts.size() < 520; ++i)
     {
         Particle q;
-        q.x = rng.nextFloat() * (float) kArtW;
-        q.y = (float) kH - rng.nextFloat() * 90.0f;
-        q.vx = (rng.nextFloat() - 0.5f) * 1.2f;
-        q.vy = -(2.0f + rng.nextFloat() * 4.0f) * (1.0f + p * 1.8f);
+        const float zone = rng.nextFloat();
+        if (zone < 0.4f)        { q.x = rng.nextFloat() * 150.0f;                 q.y = 250.0f + rng.nextFloat() * 390.0f; }   // lato sinistro
+        else if (zone < 0.8f)   { q.x = (float) kArtW - rng.nextFloat() * 150.0f; q.y = 250.0f + rng.nextFloat() * 390.0f; }   // lato destro
+        else                    { q.x = 110.0f + rng.nextFloat() * 260.0f;        q.y = 120.0f + rng.nextFloat() * 140.0f; }   // sopra la testa
+        q.vx = (rng.nextFloat() - 0.5f) * 1.6f;
+        q.vy = -(2.5f + rng.nextFloat() * 5.0f) * (1.0f + p * 1.8f);
         q.life = 0.0f;
-        q.maxLife = 22.0f + rng.nextFloat() * 28.0f;
-        q.sz = (12.0f + rng.nextFloat() * 26.0f) * (0.6f + p);
+        q.maxLife = 20.0f + rng.nextFloat() * 28.0f;
+        q.sz = (16.0f + rng.nextFloat() * 34.0f) * (0.6f + p);
         parts.push_back (q);
     }
     for (size_t i = parts.size(); i-- > 0;)
@@ -243,6 +261,40 @@ void SuperSatEditor::timerCallback()
         if (--bolts[i].ttl <= 0) bolts.erase (bolts.begin() + (long) i);
 
     if (flash > 0.0f) flash -= 0.09f;
+
+    // scintille
+    if (p > 0.15f)
+    {
+        const int ns = (int) (p * 4.0f + lvl * 6.0f);
+        for (int i = 0; i < ns && sparks.size() < 160; ++i)
+        {
+            Spark s;
+            s.x = 60.0f + rng.nextFloat() * 360.0f;
+            s.y = 120.0f + rng.nextFloat() * 420.0f;
+            const float a = rng.nextFloat() * juce::MathConstants<float>::twoPi;
+            const float v = 2.0f + rng.nextFloat() * 6.0f;
+            s.vx = std::cos (a) * v; s.vy = std::sin (a) * v - 2.0f;
+            s.life = 0.0f; s.maxLife = 10.0f + rng.nextFloat() * 18.0f;
+            sparks.push_back (s);
+        }
+    }
+    for (size_t i = sparks.size(); i-- > 0;)
+    {
+        auto& s = sparks[i];
+        s.life += 1.0f; s.x += s.vx; s.y += s.vy; s.vy += 0.25f;
+        if (s.life > s.maxLife) sparks.erase (sparks.begin() + (long) i);
+    }
+
+    // onde d'urto (a ogni colpo e a ogni cambio di stadio)
+    if (pulse > 0.99f && p > 0.08f && rings.size() < 5) rings.push_back ({ 30.0f, 0.8f, false });
+    if (flash > 0.98f) { rings.push_back ({ 20.0f, 1.0f, true }); rings.push_back ({ -30.0f, 1.0f, true }); }
+    for (size_t i = rings.size(); i-- > 0;)
+    {
+        auto& r = rings[i];
+        r.r += r.big ? 26.0f : 16.0f;
+        r.a -= r.big ? 0.035f : 0.05f;
+        if (r.a <= 0.0f) rings.erase (rings.begin() + (long) i);
+    }
 
     updateSpectrum();
 
@@ -301,55 +353,143 @@ void SuperSatEditor::drawArtPanel (juce::Graphics& g, juce::Rectangle<float> art
 {
     juce::Graphics::ScopedSaveState ss (g);
     g.reduceClipRegion (art.toNearestInt());
-    g.setColour (juce::Colours::black);
+
+    const float cx = art.getCentreX();
+    const bool baseOpaque = (stageA == 0);   // il Goku base ha lo sfondo nero
+
+    // ---- A. sfondo: gradiente + raggi rotanti
+    g.fillAll (juce::Colours::black);
+    g.setGradientFill (juce::ColourGradient (aura.withAlpha (0.0f), cx, 0.0f,
+                                             aura.withAlpha (0.10f + 0.40f * p), cx, (float) kH, false));
     g.fillRect (art);
 
-    // Goku: dissolvenza tra uno stadio e il successivo, leggero zoom con la potenza
-    const float sc = 1.0f + 0.03f * p + 0.012f * pulse;
-    const float w = art.getWidth() * sc, h = art.getHeight() * sc;
-    const float ox = (art.getWidth() - w) * 0.5f + shakeX;
-    const float oy = (art.getHeight() - h) * 0.35f + shakeY;
+    if (p > 0.1f)
+    {
+        const int nb = 14;
+        const float R = 800.0f;
+        for (int k = 0; k < nb; ++k)
+        {
+            const float a0 = rayAngle + (float) k * juce::MathConstants<float>::twoPi / (float) nb;
+            const float a1 = a0 + juce::MathConstants<float>::twoPi / (float) nb * (0.28f + 0.2f * p);
+            juce::Path ray;
+            ray.startNewSubPath (cx, 230.0f);
+            ray.lineTo (cx + std::cos (a0) * R, 230.0f + std::sin (a0) * R);
+            ray.lineTo (cx + std::cos (a1) * R, 230.0f + std::sin (a1) * R);
+            ray.closeSubPath();
+            g.setColour (aura.withAlpha (0.04f + 0.11f * p + 0.05f * pulse));
+            g.fillPath (ray);
+        }
+    }
+
+    // ---- B. alone grande
+    {
+        const float R = 260.0f + 240.0f * p;
+        juce::ColourGradient hg (aura.withAlpha (juce::jlimit (0.0f, 1.0f, 0.18f + 0.6f * p + 0.25f * pulse)), cx, 240.0f,
+                                 aura.withAlpha (0.0f), cx + R, 240.0f, true);
+        g.setGradientFill (hg);
+        g.fillRect (art);
+    }
+
+    // ---- C. fiamme dietro Goku (due livelli: esterno colorato, nucleo chiaro)
+    for (auto& q : parts)
+    {
+        const float k = 1.0f - q.life / q.maxLife;
+        g.setColour (aura.withAlpha (k * 0.28f));
+        g.fillEllipse (q.x - q.sz * 0.5f, q.y - q.sz * 1.3f, q.sz, q.sz * 2.6f);
+        g.setColour (aura.brighter (0.8f).withAlpha (k * 0.30f));
+        g.fillEllipse (q.x - q.sz * 0.25f, q.y - q.sz * 0.7f, q.sz * 0.5f, q.sz * 1.4f);
+    }
+
+    // ---- D + E. Goku: bagliore sulla sagoma + immagine (zoom che respira, rotazione, tremolio)
+    const float breathe = std::sin (tt * 2.4f) * 0.008f;
+    const float zoom = 1.0f + breathe + 0.035f * p + 0.03f * pulse + 0.05f * lvl;
+    const float rot = std::sin (tt * 7.0f) * 0.004f * p + (rng.nextFloat() - 0.5f) * 0.004f * p * p;
+    const float s0 = (float) kArtW / 720.0f;
+    auto figureTf = [&] (float extra)
+    {
+        return juce::AffineTransform::scale (s0)
+                   .scaled (zoom * extra, zoom * extra, cx, 640.0f)
+                   .rotated (rot, cx, 640.0f)
+                   .translated (shakeX, shakeY);
+    };
+    auto glowTf = [&] (float extra)
+    {
+        return juce::AffineTransform::scale ((float) kArtW / 180.0f)
+                   .scaled (zoom * extra, zoom * extra, cx, 600.0f)
+                   .rotated (rot, cx, 640.0f)
+                   .translated (shakeX, shakeY);
+    };
+    auto drawGlow = [&] (int idx, float op, float extra)
+    {
+        if (glow[(size_t) idx].isNull() || op <= 0.01f) return;
+        g.setColour (aura.withAlpha (juce::jlimit (0.0f, 1.0f, op)));
+        g.drawImageTransformed (glow[(size_t) idx], glowTf (extra), true);
+    };
+    {
+        const float gop = (0.35f + 0.6f * p) * (0.85f + 0.3f * pulse);
+        for (float extra : { 1.10f + 0.12f * p, 1.04f })
+        {
+            drawGlow (stageA, gop * (1.0f - stageT), extra);
+            if (stageA < 5) drawGlow (stageA + 1, gop * stageT, extra);
+        }
+    }
     auto drawImg = [&] (int idx, float op)
     {
         auto& im = imgs[(size_t) idx];
         if (im.isNull()) return;
         g.setOpacity (op);
-        g.drawImage (im, ox, oy, w, h, 0, 0, im.getWidth(), im.getHeight());
+        g.drawImageTransformed (im, figureTf (1.0f));
     };
     drawImg (stageA, 1.0f);
     if (stageT > 0.001f && stageA < 5) drawImg (stageA + 1, stageT);
     g.setOpacity (1.0f);
+    juce::ignoreUnused (baseOpaque);
 
-    // alone di energia ai bordi
+    // ---- F. effetti davanti
+    for (auto& r : rings)
     {
-        const auto c = art.getCentre();
-        juce::ColourGradient vg (aura.withAlpha (0.0f), c.x, c.y,
-                                 aura.withAlpha (0.55f * p + 0.1f * pulse), c.x + 330.0f, c.y + 120.0f, true);
-        g.setGradientFill (vg);
-        g.fillRect (art);
+        if (r.r < 0.0f) continue;
+        g.setColour (aura.withAlpha (juce::jlimit (0.0f, 1.0f, r.a) * 0.7f));
+        g.drawEllipse (cx - r.r, 300.0f - r.r * 0.9f, r.r * 2.0f, r.r * 1.8f, r.big ? 5.0f : 3.0f);
     }
 
-    // fiamme
-    for (auto& q : parts)
-    {
-        const float k = 1.0f - q.life / q.maxLife;
-        g.setColour (aura.withAlpha (k * 0.30f));
-        g.fillEllipse (q.x - q.sz * 0.5f, q.y - q.sz * 1.2f, q.sz, q.sz * 2.4f);
-    }
-
-    // fulmini
     for (auto& b : bolts)
     {
         juce::Path path;
         for (size_t i = 0; i < b.pts.size(); ++i)
             i == 0 ? path.startNewSubPath (b.pts[i]) : path.lineTo (b.pts[i]);
-        g.setColour (boltCol.withAlpha (0.28f));
-        g.strokePath (path, juce::PathStrokeType (7.0f, juce::PathStrokeType::curved));
+        g.setColour (boltCol.withAlpha (0.22f));
+        g.strokePath (path, juce::PathStrokeType (12.0f, juce::PathStrokeType::curved));
+        g.setColour (boltCol.withAlpha (0.55f));
+        g.strokePath (path, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved));
         g.setColour (juce::Colours::white.withAlpha (0.95f));
         g.strokePath (path, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved));
     }
 
-    // scritta dello stadio
+    for (auto& s : sparks)
+    {
+        const float k = 1.0f - s.life / s.maxLife;
+        g.setColour (aura.withAlpha (k * 0.5f));
+        g.fillEllipse (s.x - 4.0f, s.y - 4.0f, 8.0f, 8.0f);
+        g.setColour (juce::Colours::white.withAlpha (k));
+        g.fillEllipse (s.x - 1.5f, s.y - 1.5f, 3.0f, 3.0f);
+    }
+
+    // linee di velocità ai bordi quando si è al massimo
+    if (p > 0.55f)
+    {
+        const int n = 12 + (int) (p * 24.0f);
+        for (int i = 0; i < n; ++i)
+        {
+            const float a = rng.nextFloat() * juce::MathConstants<float>::twoPi;
+            const float r0 = 250.0f + rng.nextFloat() * 120.0f, r1 = r0 + 60.0f + rng.nextFloat() * 160.0f;
+            g.setColour (juce::Colours::white.withAlpha (0.05f + rng.nextFloat() * 0.18f * p));
+            g.drawLine (cx + std::cos (a) * r0, 280.0f + std::sin (a) * r0 * 1.1f,
+                        cx + std::cos (a) * r1, 280.0f + std::sin (a) * r1 * 1.1f, 1.0f + rng.nextFloat() * 2.0f);
+        }
+    }
+
+    // ---- G. interfaccia: nome dello stadio, barra potenza, scouter
     const auto name = stageName;
     g.setFont (ui (26.0f, true));
     g.setColour (aura.withAlpha (0.55f));
@@ -357,13 +497,11 @@ void SuperSatEditor::drawArtPanel (juce::Graphics& g, juce::Rectangle<float> art
     g.setColour (juce::Colours::white);
     g.drawText (name, 16, 14, 440, 34, juce::Justification::left);
 
-    // barra potenza
-    g.setColour (juce::Colours::white.withAlpha (0.12f));
+    g.setColour (juce::Colours::white.withAlpha (0.14f));
     g.fillRect (16.0f, 52.0f, 220.0f, 7.0f);
     g.setColour (aura);
     g.fillRect (16.0f, 52.0f, 220.0f * p, 7.0f);
 
-    // scouter
     const float targetPl = p * p * 14000.0f + lvl * 600.0f;
     scout += (targetPl - scout) * 0.15f;
     const int pl = juce::roundToInt (scout);
@@ -378,7 +516,7 @@ void SuperSatEditor::drawArtPanel (juce::Graphics& g, juce::Rectangle<float> art
 
     if (flash > 0.0f)
     {
-        g.setColour (juce::Colours::white.withAlpha (juce::jlimit (0.0f, 1.0f, flash) * 0.6f));
+        g.setColour (juce::Colours::white.withAlpha (juce::jlimit (0.0f, 1.0f, flash) * 0.7f));
         g.fillRect (art);
     }
 }
