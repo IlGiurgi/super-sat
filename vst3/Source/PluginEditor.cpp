@@ -199,15 +199,30 @@ void SuperSatEditor::timerCallback()
 
     // potenza
     const float tg = targetPower();
-    p += (tg - p) * (tg > p ? 0.2f : 0.06f);
+    p += (tg - p) * (tg > p ? 0.10f : 0.05f);
 
-    // stadio e colori
-    int a = 0;
-    while (a < 5 && p >= kStages[a + 1].at) ++a;
-    float t = 0.0f;
-    if (a < 5)
-        t = smooth01 ((p - (kStages[a + 1].at - 0.07f)) / 0.07f);
+    // stadio: posizione continua 0..5. La trasformazione inizia a metà fascia
+    // e la posizione visiva si muove a velocità limitata, così ogni cambio dura ~0.7 s.
+    float target = 0.0f;
+    {
+        int b = 0;
+        while (b < 5 && p >= kStages[b + 1].at) ++b;
+        target = (float) b;
+        if (b < 5)
+        {
+            const float lo = kStages[b].at, hi = kStages[b + 1].at;
+            const float w = (hi - lo) * 0.55f;
+            target += (p - (hi - w)) > 0.0f ? juce::jlimit (0.0f, 1.0f, (p - (hi - w)) / w) : 0.0f;
+        }
+    }
+    sv += juce::jlimit (-0.045f, 0.045f, (target - sv) * 0.10f);
+    sv = juce::jlimit (0.0f, 5.0f, sv);
+
+    int a = juce::jmin (4, (int) std::floor (sv));
+    float t = smooth01 (sv - (float) a);
+    if (sv >= 5.0f) { a = 5; t = 0.0f; }
     stageA = a; stageT = t;
+    morph = std::sin (t * juce::MathConstants<float>::pi);   // 0 ai lati, 1 a metà trasformazione
     const int dom = (t > 0.5f && a < 5) ? a + 1 : a;
     stageName = kStages[dom].name;
     const auto a0 = juce::Colour (kStages[a].aura), b0 = juce::Colour (kStages[juce::jmin (5, a + 1)].aura);
@@ -215,7 +230,12 @@ void SuperSatEditor::timerCallback()
     boltCol = juce::Colour (kStages[a].bolt).interpolatedWith (juce::Colour (kStages[juce::jmin (5, a + 1)].bolt), t);
     lnf.aura = aura;
 
-    if (dom > lastStage) flash = 1.0f;
+    if (dom > lastStage)
+    {
+        flash = 1.0f;
+        rings.push_back ({ 20.0f, 1.0f, true });
+        rings.push_back ({ -30.0f, 1.0f, true });
+    }
     lastStage = dom;
 
     // shake
@@ -263,7 +283,7 @@ void SuperSatEditor::timerCallback()
     for (size_t i = bolts.size(); i-- > 0;)
         if (--bolts[i].ttl <= 0) bolts.erase (bolts.begin() + (long) i);
 
-    if (flash > 0.0f) flash -= 0.09f;
+    if (flash > 0.0f) flash -= 0.045f;
 
     // scintille
     if (p > 0.15f)
@@ -290,7 +310,6 @@ void SuperSatEditor::timerCallback()
 
     // onde d'urto (a ogni colpo e a ogni cambio di stadio)
     if (pulse > 0.99f && p > 0.08f && rings.size() < 5) rings.push_back ({ 30.0f, 0.8f, false });
-    if (flash > 0.98f) { rings.push_back ({ 20.0f, 1.0f, true }); rings.push_back ({ -30.0f, 1.0f, true }); }
     for (size_t i = rings.size(); i-- > 0;)
     {
         auto& r = rings[i];
@@ -429,22 +448,25 @@ void SuperSatEditor::drawArtPanel (juce::Graphics& g, juce::Rectangle<float> art
         g.drawImageTransformed (glow[(size_t) idx], glowTf (extra), true);
     };
     {
-        const float gop = (0.35f + 0.6f * p) * (0.85f + 0.3f * pulse);
-        for (float extra : { 1.10f + 0.12f * p, 1.04f })
+        const float gop = (0.35f + 0.6f * p + 0.5f * morph) * (0.85f + 0.3f * pulse);
+        for (float extra : { 1.10f + 0.12f * p + 0.08f * morph, 1.04f })
         {
             drawGlow (stageA, gop * (1.0f - stageT), extra);
             if (stageA < 5) drawGlow (stageA + 1, gop * stageT, extra);
         }
     }
-    auto drawImg = [&] (int idx, float op)
+    auto drawImg = [&] (int idx, float op, float extra)
     {
         auto& im = imgs[(size_t) idx];
-        if (im.isNull()) return;
-        g.setOpacity (op);
-        g.drawImageTransformed (im, figureTf (1.0f));
+        if (im.isNull() || op <= 0.002f) return;
+        g.setOpacity (juce::jlimit (0.0f, 1.0f, op));
+        g.drawImageTransformed (im, figureTf (extra));
     };
-    drawImg (stageA, 1.0f);
-    if (stageT > 0.001f && stageA < 5) drawImg (stageA + 1, stageT);
+    // dissolvenza a due tempi: la nuova forma entra (0..0.6), la vecchia esce sotto (0.4..1)
+    const float tin  = smooth01 (stageT / 0.6f);
+    const float tout = smooth01 ((stageT - 0.4f) / 0.6f);
+    drawImg (stageA, 1.0f - tout, 1.0f + 0.02f * morph);
+    if (stageA < 5) drawImg (stageA + 1, tin, 1.0f + 0.03f * (1.0f - stageT));
     g.setOpacity (1.0f);
     juce::ignoreUnused (baseOpaque);
 
@@ -519,7 +541,10 @@ void SuperSatEditor::drawArtPanel (juce::Graphics& g, juce::Rectangle<float> art
 
     if (flash > 0.0f)
     {
-        g.setColour (juce::Colours::white.withAlpha (juce::jlimit (0.0f, 1.0f, flash) * 0.7f));
+        const float fa = smooth01 (flash) * 0.45f;
+        juce::ColourGradient fg (juce::Colours::white.withAlpha (fa), cx, 300.0f,
+                                 aura.withAlpha (0.0f), cx + 420.0f, 300.0f, true);
+        g.setGradientFill (fg);
         g.fillRect (art);
     }
 }

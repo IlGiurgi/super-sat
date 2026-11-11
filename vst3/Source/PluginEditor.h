@@ -85,7 +85,7 @@ private:
     juce::Colour aura { 0xff8fa6ff }, boltCol { 0xffc8d4ff };
     juce::String stageName { "BASE FORM" };
     int stageA = 0;
-    float stageT = 0.0f;
+    float stageT = 0.0f, sv = 0.0f, morph = 0.0f;
     float shakeX = 0.0f, shakeY = 0.0f;
     juce::Random rng;
     std::vector<Particle> parts;
